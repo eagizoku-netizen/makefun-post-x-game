@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Neon Breakout — built from one prompt</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #0a0a14; height: 100%; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { display: block; background: #0d0d1f; border: 2px solid #2de2ff; border-radius: 8px; }
+</style>
+</head>
+<body>
+<canvas id="game" width="960" height="540"></canvas>
+<script>
+const cv = document.getElementById('game');
+const ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+
+const state = {
+  score: 0,
+  lives: 3,
+  level: 1,
+  mode: 'serve', // serve | play | over | win
+  bricks: [],
+};
+
+const paddle = { w: 120, h: 14, x: W / 2 - 60, y: H - 40, speed: 9 };
+const ball = { r: 9, x: W / 2, y: H - 60, vx: 4.2, vy: -4.2 };
+
+const BRICK_COLS = 8, BRICK_ROWS = 5;
+const BRICK_W = 102, BRICK_H = 26, BRICK_GAP = 8;
+const BRICK_TOP = 70;
+const BRICK_COLORS = ['#ff2d78', '#ff9f1c', '#2de2ff', '#7CFC66', '#b967ff'];
+const BRICK_X0 = (W - (BRICK_COLS * BRICK_W + (BRICK_COLS - 1) * BRICK_GAP)) / 2;
+
+function buildBricks() {
+  state.bricks = [];
+  for (let row = 0; row < BRICK_ROWS; row++) {
+    for (let col = 0; col < BRICK_COLS; col++) {
+      state.bricks.push({
+        x: BRICK_X0 + col * (BRICK_W + BRICK_GAP),
+        y: BRICK_TOP + row * (BRICK_H + BRICK_GAP),
+        w: BRICK_W,
+        h: BRICK_H,
+        color: BRICK_COLORS[row % BRICK_COLORS.length],
+        alive: true,
+      });
+    }
+  }
+}
+
+function resetBall() {
+  ball.x = paddle.x + paddle.w / 2;
+  ball.y = paddle.y - ball.r - 1;
+  ball.vx = 4.2 * (Math.random() < 0.5 ? -1 : 1);
+  ball.vy = -4.2;
+}
+
+function resetGame() {
+  state.score = 0;
+  state.lives = 3;
+  state.level = 1;
+  paddle.w = 120;
+  paddle.x = W / 2 - paddle.w / 2;
+  buildBricks();
+  resetBall();
+  state.mode = 'serve';
+}
+
+function serve() {
+  ball.x = paddle.x + paddle.w / 2;
+  ball.y = paddle.y - ball.r - 1;
+}
+
+function step() {
+  if (state.mode !== 'play') return;
+  ball.x += ball.vx;
+  ball.y += ball.vy;
+
+  if (ball.x - ball.r < 0) { ball.x = ball.r; ball.vx = Math.abs(ball.vx); }
+  if (ball.x + ball.r > W) { ball.x = W - ball.r; ball.vx = -Math.abs(ball.vx); }
+  if (ball.y - ball.r < 0) { ball.y = ball.r; ball.vy = Math.abs(ball.vy); }
+
+  // Paddle hit: bounce angle depends on where the ball lands.
+  if (ball.vy > 0 &&
+      ball.y + ball.r >= paddle.y &&
+      ball.y + ball.r <= paddle.y + paddle.h + 12 &&
+      ball.x >= paddle.x - ball.r &&
+      ball.x <= paddle.x + paddle.w + ball.r) {
+    const hit = (ball.x - (paddle.x + paddle.w / 2)) / (paddle.w / 2);
+    const speed = Math.hypot(ball.vx, ball.vy) * 1.01;
+    const angle = hit * (Math.PI / 3);
+    ball.vx = speed * Math.sin(angle);
+    ball.vy = -speed * Math.cos(angle);
+    ball.y = paddle.y - ball.r - 1;
+  }
+
+  // Brick hits.
+  for (const b of state.bricks) {
+    if (!b.alive) continue;
+    if (ball.x + ball.r > b.x && ball.x - ball.r < b.x + b.w &&
+        ball.y + ball.r > b.y && ball.y - ball.r < b.y + b.h) {
+      b.alive = false;
+      state.score += 10;
+      ball.vy = -ball.vy;
+      break;
+    }
+  }
+
+  // Floor: lose a life.
+  if (ball.y - ball.r > H) {
+    state.lives -= 1;
+    if (state.lives <= 0) {
+      state.mode = 'over';
+    } else {
+      resetBall();
+      state.mode = 'serve';
+    }
+    return;
+  }
+
+  // Cleared the wall: next level, faster ball.
+  if (state.bricks.every(b => !b.alive)) {
+    state.level += 1;
+    state.score += 100;
+    buildBricks();
+    ball.vx *= 1.15;
+    ball.vy *= 1.15;
+    resetBall();
+    state.mode = 'serve';
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  // Bricks.
+  for (const b of state.bricks) {
+    if (!b.alive) continue;
+    ctx.fillStyle = b.color;
+    ctx.shadowColor = b.color;
+    ctx.shadowBlur = 12;
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+  }
+  ctx.shadowBlur = 0;
+
+  // Paddle.
+  ctx.fillStyle = '#2de2ff';
+  ctx.shadowColor = '#2de2ff';
+  ctx.shadowBlur = 16;
+  ctx.fillRect(paddle.x, paddle.y, paddle.w, paddle.h);
+  ctx.shadowBlur = 0;
+
+  // Ball.
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = '#ffffff';
+  ctx.shadowBlur = 18;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // HUD.
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 24px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('SCORE ' + state.score, 20, 36);
+  ctx.textAlign = 'center';
+  ctx.fillText('LEVEL ' + state.level, W / 2, 36);
+  ctx.textAlign = 'right';
+  ctx.fillText('LIVES ' + '●'.repeat(Math.max(state.lives, 0)), W - 20, 36);
+
+  // Messages.
+  ctx.textAlign = 'center';
+  if (state.mode === 'serve') {
+    ctx.font = 'bold 30px monospace';
+    ctx.fillStyle = '#2de2ff';
+    ctx.fillText('Press SPACE or click to launch', W / 2, H / 2);
+  } else if (state.mode === 'over') {
+    ctx.font = 'bold 44px monospace';
+    ctx.fillStyle = '#ff2d78';
+    ctx.fillText('GAME OVER', W / 2, H / 2 - 10);
+    ctx.font = 'bold 26px monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('Final score: ' + state.score + ' — press R to restart', W / 2, H / 2 + 34);
+  }
+}
+
+function loop() {
+  step();
+  if (state.mode === 'serve') serve();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+const keys = {};
+window.addEventListener('keydown', (e) => {
+  keys[e.key] = true;
+  if (e.key === ' ' && state.mode === 'serve') state.mode = 'play';
+  if ((e.key === 'r' || e.key === 'R') && state.mode === 'over') resetGame();
+  if (['ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+});
+window.addEventListener('keyup', (e) => { keys[e.key] = false; });
+cv.addEventListener('mousemove', (e) => {
+  const rect = cv.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * (W / rect.width);
+  paddle.x = Math.max(0, Math.min(W - paddle.w, mx - paddle.w / 2));
+});
+cv.addEventListener('click', () => {
+  if (state.mode === 'serve') state.mode = 'play';
+});
+
+// Keyboard paddle movement, applied every frame.
+setInterval(() => {
+  if (keys['ArrowLeft']) paddle.x = Math.max(0, paddle.x - paddle.speed);
+  if (keys['ArrowRight']) paddle.x = Math.min(W - paddle.w, paddle.x + paddle.speed);
+}, 16);
+
+resetGame();
+loop();
+
+// Debug handle so an auto-player (or a test) can read the game state.
+window.__game = { state, ball, paddle };
+</script>
+</body>
+</html>
